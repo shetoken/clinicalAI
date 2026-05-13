@@ -1,0 +1,42 @@
+## SYNTHETIC NOTE — for development/testing only. No real PHI.
+
+Patient: R.T. | MRN: SYN-0001 (synthetic)
+Visit type: Routine SN follow-up, episode day 14
+Clinician: T. Brooks, RN
+Date/time: 2026-03-14 09:42
+
+Primary dx: HFrEF (LVEF 28%), T2DM, CKD stage 3a
+Episode: SOC 2026-02-28 post acute decompensated HF inpatient discharge.
+
+Subjective:
+Pt reports increased SOB with ambulation to bathroom over past 3 days. Denies chest
+pain. Daughter (primary CG, present at visit) states pt "seems more confused than
+usual" for the past 2 days — forgot to take evening meds twice this week.
+Pt acknowledges taking PRN furosemide 40 mg last night for "puffiness."
+
+Objective:
+BP 158/92 (last visit 142/86, trending up over 5 days).
+HR 96, RR 22, SpO2 93% on RA, T 98.2 F.
+Weight 187 lbs — up 5.3 lbs from 7 days ago (daily home log corroborates, not a
+measurement artifact).
+Lungs: faint crackles bilateral bases, prolonged expiration noted.
+JVD 1+ at 30 degrees. 2+ pitting edema bilateral lower extremities to mid-shin.
+No acute distress at rest.
+
+Assessment:
+Findings consistent with early HF decompensation: rapid weight gain exceeding 3 lb /
+3 day threshold, rising BP, new exertional dyspnea, JVD with bibasilar crackles,
+and new-onset confusion reported by caregiver. PRN diuretic self-administered once.
+Concern for fluid overload trajectory.
+
+Plan:
+- Notify HF case manager and PCP today.
+- Hold scheduled lisinopril dose pending PCP review given creatinine trend.
+- Reinforce daily AM weight, low-Na intake, fluid restriction 1.5 L/day. Daughter
+  re-educated on red-flag symptoms (weight gain > 2 lb/day, worsening SOB,
+  confusion).
+- Caregiver to call agency immediately if SOB at rest, chest pain, or further
+  weight gain.
+- Increase visit frequency from 2x to 3x weekly pending PCP guidance.
+
+Note saved 09:58.
