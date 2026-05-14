@@ -1,0 +1,72 @@
+Good question — let me think about the best swap. For this task (structured feature extraction from clinical narrative with evidence quotes), the right HF stack depends on whether you need entity extraction or full reasoning. I'll build a notebook around **GLiNER** as the primary tool because it gives you zero-shot custom labels with character offsets (= free evidence quotes), and mention the alternatives explicitly.
+
+Let me verify current model availability before committing:Got the current state of the field. The right primary choice is **GLiNER-BioMed** (Ihor/gliner-biomed-large-v1.0, published 2025) — purpose-built for biomedical zero-shot NER with custom labels. I'll build the notebook around that, with **MedGemma** as the direct LLM-style replacement when you need reasoning (and **GLiNER-PII** noted for the PHI-scrub step from the roadmap).All 11 code cells parse. Now run the schema + assembly logic standalone to catch bugs before the notebook hits a user — I can't load GLiNER inside the sandbox (no `huggingface.co` egress), but I can fake the NER output and exercise the rest of the pipeline:Every assertion passes — vitals regex, dyspnea grading, dx priority, escalation rules, flat-signal assembly, all working end-to-end on the HFrEF note. Let me also exercise the COPD-stable and DM-SDOH paths to make sure the rule logic distinguishes them correctly:All three notes assemble correctly:
+- **HFrEF** → declining, 3 escalations, full HF pattern detected
+- **COPD** → stable, no escalations, correct dx, no false weight delta from absent text
+- **DM+SDOH** → declining, adherence + food-insecurity escalations, weight loss correctly signed
+
+Ship it:24 cells, every code cell parses, assembly logic validated against all three notes with fake NER inputs.
+
+## Why GLiNER-BioMed as the primary swap
+
+I went with `Ihor/gliner-biomed-large-v1.0` (DS4DH × University of Geneva, 2025) for the executable path because it's the model whose properties best match this task:
+
+- **Zero-shot labels** — you define entity classes at inference, so they can directly mirror your Pydantic schema fields. No retraining when the schema changes.
+- **Character offsets returned for free** — the evidence-quote contract from the Gemini version is satisfied by the model's output structure, not by prompting discipline.
+- **Confidence scores** are real model outputs, not hallucinated.
+- **CPU-friendly** (~470M params) — runs without a GPU in the BAA enclave.
+- **Purpose-built for biomedical text** in 2025 — outperforms the older general GLiNER on clinical entities per the GLiNER-BioMed paper.
+
+## The other models in play
+
+The notebook references the rest of the stack the CenterWell roadmap names by model name — none of these are invented:
+
+- **`google/medgemma-4b-it`** — direct LLM-style Gemini replacement (Section 11, template only since it needs a GPU). The roadmap names MedGemma 1.5 as the on-prem clinical-reasoning Path C.
+- **`nvidia/gliner-PII`** (Oct 2025) / **`urchade/gliner_multi_pii-v1`** — PHI scrub before any external egress. The roadmap names `gliner_multi_pii` specifically.
+- **`emilyalsentzer/Bio_ClinicalBERT`** — note embeddings for `visit_note_embeddings_gold`. Named in the roadmap's tech stack table.
+- **`Clinical-AI-Apollo/Medical-NER`** / **`blaze999/Medical-NER`** — fixed-label fine-tuned alternatives (41 entity types) if zero-shot doesn't fit.
+- **`aaditya/Llama3-OpenBioLLM-8B`** / **`epfl-llm/meditron-7b`** — fallback open clinical LLMs.
+
+## The architectural argument
+
+Section 12 of the notebook lays out the trade-offs as a table. The short version of the recommendation:
+
+- **High-volume structured extraction** (every visit save → feature store): GLiNER-BioMed + rules. Deterministic, free marginal cost, audit-grade evidence.
+- **Reasoning over the whole note** (visit-note QA, gap detection, escalation rationale): Gemini cloud or MedGemma on-prem.
+- **PHI scrub** before external egress: GLiNER-PII variants.
+- **Embeddings** for the vector index: Bio_ClinicalBERT.
+
+This actually maps cleanly onto the Q1–Q3 roadmap: visit-note QA in Q1 is a cloud-LLM job; the **feature extraction step** that produces structured signals for the 30-day ACH risk model is exactly the kind of work that should be deterministic NER + rules, not an LLM call per note.
+
+Want me to extend the notebook with the PHI-scrub pre-step (GLiNER-PII) and a Bio_ClinicalBERT embedding cell to round out the full open-source pipeline?
+
+-----
+Good — I'll extend with two sidecar cells: GLiNER-PII for PHI scrub before any text leaves the enclave, and Bio_ClinicalBERT for the note embeddings that feed `visit_note_embeddings_gold`. Both are roadmap-named.Insert the two new sidecar sections at line 528 (right before the MedGemma cell), and renumber the trailing sections. I'll use `str_replace`:Renumber the trailing decision-matrix section from 12 → 14, and refresh the closing recommendation list to reference the new sidecars:Also need to update the top intro since we now have sidecars and there's a "still-to-add" list:Rebuild and validate every code cell:f-string escaping issue inside the PHI cell. Let me fix it by lifting the dict accesses out of the f-strings:All 14 code cells parse. Let me also run the new PHI redaction function in isolation against fake spans to make sure the back-to-front substitution actually works correctly — that's the only piece with non-trivial logic and it's easy to get wrong:Back-to-front substitution works correctly: no PHI leakage, all redaction tags placed, clinical content (HFrEF, BP 158/92, SOB with ambulation) preserved, audit log complete with offsets.
+
+Final delivery:Extended notebook: **32 cells (18 markdown, 14 code), 42 KB**. Every code cell parses; assembly and redaction logic validated against the sample notes.
+
+## What got added
+
+**Section 11 — PHI scrub with GLiNER-PII**
+
+Three cells:
+1. *Why this is here* — defense-in-depth at the enclave boundary. Doesn't pre-process notes for the in-VPC NER pipeline (you'd lose context like "Daughter (primary caregiver)" which carries `caregiver_present`); it's the gate for anything heading to logs, traces, monitoring, external research.
+2. `redact_phi()` function — back-to-front substitution so character offsets stay valid, returns `(redacted_text, audit_log)` with `{label, text, score, start, end}` per detected span. The audit log is what you keep encrypted-at-rest; only the redacted text egresses.
+3. The wiring pattern showing how a flat-signal evidence quote gets scrubbed right before it hits a non-BAA logger.
+
+I validated the substitution against fake spans on the HFrEF note — no PHI leakage (no "R.T.", no "Daughter" surviving), all `[REDACTED_PERSON_NAME]` / `[REDACTED_DATE]` tags placed, and the clinical signal text ("HFrEF", "BP 158/92", "SOB with ambulation") fully preserved.
+
+**Section 12 — Note embeddings with Bio_ClinicalBERT**
+
+Three cells:
+1. `embed_note()` — attention-mask-aware mean pool over the last hidden states, L2-normalized so cosine similarity is a dot product downstream. 768-d per note. Notes about chunking for >512-token records.
+2. Pairwise cosine similarity matrix across the three notes — the sanity check that the embedding picks up the decompensation pattern (HFrEF + DM-uncontrolled should sit closer to each other than to stable-COPD).
+3. *What you do with these embeddings* — explicit mapping into `visit_note_embeddings_gold` and the three roadmap use cases (visit-note QA, care-pathway agent cohort retrieval, cold-start risk).
+
+**Section 14 — Decision matrix, refreshed**
+
+Two tables now: the three feature-extraction options (Gemini / GLiNER-BioMed / MedGemma) and the two sidecars (PHI scrub / embeddings) which are complementary, not alternatives. Plus an ASCII diagram of the full open-source pipeline showing both gold tables fed in parallel, and the boundary at which PHI scrub fires.
+
+Closed with a "still-to-add" list naming SapBERT (concept linking, roadmap), MedSigLIP (wound modality), and the fine-tuned NER alternatives — honest signal of what would round out the platform but isn't shaped like note feature extraction.
+
+Want me to add an in-enclave **chunked-embedding** cell (for the long discharge summaries that won't fit in BCB's 512-token context), or wire **SapBERT** in to push the GLiNER-BioMed `flat_signals` into UMLS/SNOMED CUIs?
